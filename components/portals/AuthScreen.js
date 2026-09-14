@@ -12,8 +12,8 @@ import { toast } from 'sonner'
 
 const HERO = 'https://images.unsplash.com/photo-1574130303188-31a915382726'
 
-export default function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState('login')
+export default function AuthScreen({ onAuth, initialMode = 'login', onBack }) {
+  const [mode, setMode] = useState(initialMode)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState({
     name: '', email: '', password: '', role: 'teacher',
@@ -46,11 +46,14 @@ export default function AuthScreen({ onAuth }) {
       {/* Left: form */}
       <div className="flex w-full flex-col justify-center px-6 py-10 sm:px-12 lg:w-[46%] xl:px-20">
         <div className="mx-auto w-full max-w-md">
+          {onBack && (
+            <button onClick={onBack} className="mb-6 text-sm text-muted-foreground hover:text-foreground">← Back to home</button>
+          )}
           <div className="mb-8 flex items-center gap-2.5">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
               <GraduationCap className="h-6 w-6" />
             </div>
-            <span className="text-xl font-semibold tracking-tight">EduPilot AI</span>
+            <span className="text-xl font-semibold tracking-tight">TeachFlow AI</span>
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">

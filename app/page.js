@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { api, getToken, clearToken } from '@/lib/apiClient'
+import Landing from '@/components/portals/Landing'
 import AuthScreen from '@/components/portals/AuthScreen'
 import TeacherPortal from '@/components/portals/TeacherPortal'
 import StudentPortal from '@/components/portals/StudentPortal'
@@ -11,6 +12,8 @@ import AdminPortal from '@/components/portals/AdminPortal'
 function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [screen, setScreen] = useState('landing') // 'landing' | 'auth'
+  const [authMode, setAuthMode] = useState('login')
 
   useEffect(() => {
     const t = getToken()
@@ -18,13 +21,23 @@ function App() {
     api('/auth/me').then((d) => setUser(d.user)).catch(() => clearToken()).finally(() => setLoading(false))
   }, [])
 
-  function logout() { clearToken(); setUser(null) }
+  function logout() { clearToken(); setUser(null); setScreen('landing') }
 
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
   }
 
-  if (!user) return <AuthScreen onAuth={setUser} />
+  if (!user) {
+    if (screen === 'landing') {
+      return (
+        <Landing
+          onGetStarted={() => { setAuthMode('register'); setScreen('auth') }}
+          onSignIn={() => { setAuthMode('login'); setScreen('auth') }}
+        />
+      )
+    }
+    return <AuthScreen onAuth={setUser} initialMode={authMode} onBack={() => setScreen('landing')} />
+  }
 
   if (user.role === 'teacher') return <TeacherPortal user={user} onLogout={logout} />
   if (user.role === 'student') return <StudentPortal user={user} onLogout={logout} onUserUpdate={setUser} />

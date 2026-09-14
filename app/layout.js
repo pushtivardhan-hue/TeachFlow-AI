@@ -3,8 +3,8 @@ import { Providers } from './providers'
 import { Toaster } from '@/components/ui/sonner'
 
 export const metadata = {
-  title: 'EduPilot AI — Teacher Automation Platform',
-  description: 'AI-assisted assessment generation, smart grading and analytics for teachers.',
+  title: 'TeachFlow AI — AI-Assisted Assessment & Personalized Learning',
+  description: 'AI-assisted assessment generation, rubric-based evaluation, misconception detection and personalized remediation for teachers and students.',
 }
 
 export default function RootLayout({ children }) {

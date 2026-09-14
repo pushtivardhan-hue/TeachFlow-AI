@@ -194,6 +194,25 @@ async function handleRoute(request, { params }) {
       return json({ result: { ...result, questions } })
     }
 
+    // ===== AI: regenerate a single question =====
+    if (route === '/ai/regenerate' && method === 'POST') {
+      if (!me || !['teacher', 'superadmin'].includes(me.role)) return json({ error: 'Forbidden' }, 403)
+      const body = await request.json()
+      const { className, subject, syllabus, theme, difficulty, type } = body
+      if (!subject || !theme || !type) return json({ error: 'subject, theme, type required' }, 400)
+      const counts = { mcq: 0, fill_blank: 0, descriptive: 0 }
+      counts[type] = 1
+      const learningOutcomes = Array.isArray(body.learningOutcomes) && body.learningOutcomes.length
+        ? body.learningOutcomes : ['Understand ' + theme, 'Apply ' + theme, 'Analyze ' + theme]
+      const result = await generateExam({
+        className: className || 'General', subject, syllabus: syllabus || theme, theme,
+        difficulty: difficulty || 'Medium', learningOutcomes, counts,
+      })
+      const q = (result.questions || [])[0]
+      if (!q) return json({ error: 'Could not regenerate' }, 502)
+      return json({ question: { ...q, id: uuidv4() } })
+    }
+
     // ===== AI: grade single answer =====
     if (route === '/ai/grade' && method === 'POST') {
       if (!me || !['teacher', 'superadmin'].includes(me.role)) return json({ error: 'Forbidden' }, 403)
@@ -366,6 +385,7 @@ async function handleRoute(request, { params }) {
         }
       }
       const existing = await db.collection('submissions').findOne({ assessmentId: a.id, studentId: me.id })
+      if (existing) return json({ error: 'You have already submitted this assessment.', submission: clean(existing) }, 409)
       const sub = {
         id: existing ? existing.id : uuidv4(),
         assessmentId: a.id,
@@ -422,9 +442,9 @@ async function handleRoute(request, { params }) {
             maxScore: Number(q.marks) || 5,
             studentAnswer,
           })
-          ai[q.id] = g
+          ai[q.id] = { ...g, learningOutcome: q.learningOutcome || '', question: q.question }
         } catch (e) {
-          ai[q.id] = { score: 0, maxScore: Number(q.marks) || 5, percentage: 0, feedback: 'AI grading failed, please grade manually.', strengths: [], improvements: [], rubricBreakdown: [] }
+          ai[q.id] = { score: 0, maxScore: Number(q.marks) || 5, percentage: 0, feedback: 'AI grading failed, please grade manually.', strengths: [], improvements: [], rubricBreakdown: [], misconception: 'None detected', confidence: 0, remediation: null, learningOutcome: q.learningOutcome || '', question: q.question }
         }
       }
       const descriptiveScore = Object.values(ai).reduce((s, g) => s + (Number(g.score) || 0), 0)
@@ -523,7 +543,97 @@ async function handleRoute(request, { params }) {
         status: s.status,
         date: s.submittedAt,
       }))
-      return json({ history })
+
+      // Topic strengths/weaknesses + personalized remediation
+      const assessIds = [...new Set(subs.map((s) => s.assessmentId))]
+      const assessments = assessIds.length ? await db.collection('assessments').find({ id: { $in: assessIds } }).toArray() : []
+      const aMap = {}
+      assessments.forEach((a) => { aMap[a.id] = a })
+      const topicAgg = {}
+      const remediation = []
+      const seenConcepts = new Set()
+      for (const s of subs) {
+        const a = aMap[s.assessmentId]
+        if (!a) continue
+        for (const q of a.questions) {
+          const topic = q.learningOutcome || a.theme || a.subject || 'General'
+          const max = Number(q.marks) || 0
+          let earned = 0
+          if (q.type === 'descriptive') {
+            earned = Number(s.finalScores?.[q.id] ?? s.ai?.[q.id]?.score ?? 0) || 0
+            const rem = s.ai?.[q.id]?.remediation
+            const weak = max > 0 && earned < max
+            if (weak && rem && rem.concept && !seenConcepts.has(rem.concept)) {
+              seenConcepts.add(rem.concept)
+              remediation.push({ ...rem, misconception: s.ai?.[q.id]?.misconception || '', subject: a.subject })
+            }
+          } else {
+            earned = Number(s.objective?.[q.id]?.awarded ?? 0) || 0
+          }
+          if (!topicAgg[topic]) topicAgg[topic] = { topic, earned: 0, possible: 0, subject: a.subject }
+          topicAgg[topic].earned += earned
+          topicAgg[topic].possible += max
+        }
+      }
+      const topics = Object.values(topicAgg).map((t) => ({ ...t, percentage: t.possible ? Math.round((t.earned / t.possible) * 100) : 0 }))
+      const sorted = [...topics].sort((x, y) => y.percentage - x.percentage)
+      const strengths = sorted.filter((t) => t.percentage >= 70).slice(0, 4)
+      const weaknesses = [...topics].sort((x, y) => x.percentage - y.percentage).filter((t) => t.percentage < 70).slice(0, 4)
+      return json({ history, topics, strengths, weaknesses, remediation: remediation.slice(0, 6) })
+    }
+
+    // ===== TEACHER OVERVIEW (command center) =====
+    if (route === '/teacher/overview' && method === 'GET') {
+      if (!me || !['teacher', 'superadmin'].includes(me.role)) return json({ error: 'Forbidden' }, 403)
+      const myAssessments = await db.collection('assessments').find(me.role === 'teacher' ? { createdBy: me.id } : {}).sort({ createdAt: -1 }).toArray()
+      const ids = myAssessments.map((a) => a.id)
+      const subs = ids.length ? await db.collection('submissions').find({ assessmentId: { $in: ids } }).sort({ submittedAt: -1 }).toArray() : []
+      const pct = (s) => (s.totalMax ? (s.totalScore / s.totalMax) * 100 : 0)
+      const avgClassScore = subs.length ? Math.round(subs.reduce((x, s) => x + pct(s), 0) / subs.length) : 0
+
+      // per-assessment average (chart)
+      const classPerformance = myAssessments.slice(0, 8).map((a) => {
+        const asubs = subs.filter((s) => s.assessmentId === a.id)
+        const avg = asubs.length ? Math.round(asubs.reduce((x, s) => x + pct(s), 0) / asubs.length) : 0
+        return { name: (a.title || '').slice(0, 16), avg, submissions: asubs.length }
+      }).reverse()
+
+      // students needing attention (avg < 50%)
+      const byStudent = {}
+      subs.forEach((s) => {
+        if (!byStudent[s.studentId]) byStudent[s.studentId] = { name: s.studentName, rollNo: s.rollNo, scores: [] }
+        byStudent[s.studentId].scores.push(pct(s))
+      })
+      const needsAttention = Object.values(byStudent)
+        .map((v) => ({ name: v.name, rollNo: v.rollNo, avg: Math.round(v.scores.reduce((x, y) => x + y, 0) / v.scores.length) }))
+        .filter((v) => v.avg < 50)
+        .sort((a, b) => a.avg - b.avg)
+        .slice(0, 6)
+
+      const classNames = [...new Set(myAssessments.map((a) => a.className).filter(Boolean))]
+      const studentQuery = { role: 'student' }
+      if (me.role === 'teacher' && classNames.length) studentQuery.className = { $in: classNames }
+      const totalStudents = await db.collection('users').countDocuments(studentQuery)
+
+      const recentSubmissions = subs.slice(0, 6).map((s) => ({
+        studentName: s.studentName, assessmentTitle: s.assessmentTitle,
+        totalScore: s.totalScore, totalMax: s.totalMax, status: s.status,
+      }))
+      const recentAssessments = myAssessments.slice(0, 5).map((a) => ({
+        id: a.id, title: a.title, subject: a.subject, className: a.className,
+        questions: a.questions.length, submissionCount: subs.filter((s) => s.assessmentId === a.id).length,
+      }))
+
+      return json({ overview: {
+        totalStudents,
+        activeAssessments: myAssessments.length,
+        completedSubmissions: subs.length,
+        avgClassScore,
+        needsAttention,
+        classPerformance,
+        recentSubmissions,
+        recentAssessments,
+      } })
     }
 
     // ===== ALERTS =====

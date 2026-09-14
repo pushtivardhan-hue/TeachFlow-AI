@@ -2,6 +2,7 @@
 
 import { GraduationCap, LogOut, Menu } from 'lucide-react'
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Card, CardContent } from '@/components/ui/card'
@@ -11,6 +12,22 @@ export const ROLE_LABEL = {
   superadmin: 'Super Admin',
   teacher: 'Teacher',
   student: 'Student',
+}
+
+export const BRAND = 'TeachFlow AI'
+
+// Subtle entrance animation wrapper
+export function FadeIn({ children, delay = 0, y = 10, className }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay, ease: 'easeOut' }}
+      className={className}
+    >
+      {children}
+    </motion.div>
+  )
 }
 
 export function initials(name = '') {
@@ -66,7 +83,7 @@ export function AppShell({ user, onLogout, nav, active, onNav, headerRight, chil
           <GraduationCap className="h-5 w-5" />
         </div>
         <div>
-          <div className="text-[15px] font-semibold leading-tight">EduPilot AI</div>
+          <div className="text-[15px] font-semibold leading-tight">TeachFlow AI</div>
           <div className="text-[11px] text-muted-foreground">{ROLE_LABEL[user?.role]}</div>
         </div>
       </div>

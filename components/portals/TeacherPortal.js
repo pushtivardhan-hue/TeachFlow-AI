@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Sparkles, FileText, ClipboardCheck, Users, Bell,
   Wand2, Plus, Trash2, BarChart3, Send, CheckCircle2, Brain, Loader2, Pencil, Printer, Key,
+  TrendingUp, AlertTriangle, Database, RefreshCw, Save, X, Lightbulb, Gauge,
 } from 'lucide-react'
 import { openPrintWindow, questionPaperHtml } from '@/lib/print'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
@@ -19,7 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { api } from '@/lib/apiClient'
-import { AppShell, StatCard, Empty, Spinner } from '@/components/portals/shared'
+import { AppShell, StatCard, Empty, Spinner, FadeIn } from '@/components/portals/shared'
 import { toast } from 'sonner'
 
 const NAV = [
@@ -27,6 +28,7 @@ const NAV = [
   { key: 'generate', label: 'Generate', icon: Sparkles },
   { key: 'assessments', label: 'Assessments', icon: FileText },
   { key: 'evaluate', label: 'Evaluate', icon: ClipboardCheck },
+  { key: 'bank', label: 'Question Bank', icon: Database },
   { key: 'students', label: 'Students', icon: Users },
   { key: 'alerts', label: 'Alerts', icon: Bell },
 ]
@@ -42,66 +44,241 @@ export default function TeacherPortal({ user, onLogout }) {
       {tab === 'generate' && <Generate onPublished={() => setTab('assessments')} />}
       {tab === 'assessments' && <Assessments />}
       {tab === 'evaluate' && <Evaluate />}
+      {tab === 'bank' && <QuestionBank onGenerate={() => setTab('generate')} />}
       {tab === 'students' && <Students />}
       {tab === 'alerts' && <Alerts />}
     </AppShell>
   )
 }
 
-/* ---------------- Dashboard ---------------- */
+/* ---------------- Dashboard (command center) ---------------- */
 function Dashboard({ user, go }) {
-  const [assessments, setAssessments] = useState([])
-  const [students, setStudents] = useState([])
+  const [ov, setOv] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([api('/assessments'), api('/users')])
-      .then(([a, u]) => { setAssessments(a.assessments || []); setStudents(u.users || []) })
-      .catch((e) => toast.error(e.message))
-      .finally(() => setLoading(false))
+    api('/teacher/overview').then((d) => setOv(d.overview)).catch((e) => toast.error(e.message)).finally(() => setLoading(false))
   }, [])
 
-  const totalSubs = assessments.reduce((s, a) => s + (a.submissionCount || 0), 0)
+  if (loading) return <PageLoader />
+  const o = ov || {}
+  const actions = [
+    { label: 'Create Assessment', icon: Wand2, go: 'generate' },
+    { label: 'Generate Questions', icon: Sparkles, go: 'generate' },
+    { label: 'Question Bank', icon: Database, go: 'bank' },
+    { label: 'View Students', icon: Users, go: 'students' },
+  ]
+  return (
+    <div className="space-y-6">
+      <FadeIn>
+        <div className="rounded-2xl bg-gradient-to-r from-primary to-blue-500 p-6 text-primary-foreground">
+          <h2 className="text-2xl font-bold">Hi {user.name.split(' ')[0]} 👋</h2>
+          <p className="mt-1 text-primary-foreground/85">Your teaching command center. Let AI handle the busywork.</p>
+        </div>
+      </FadeIn>
+
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {actions.map((a) => (
+          <button key={a.label} onClick={() => go(a.go)}
+            className="flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary"><a.icon className="h-5 w-5" /></div>
+            <span className="text-sm font-medium">{a.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard icon={Users} label="Students" value={o.totalStudents ?? 0} tone="violet" />
+        <StatCard icon={FileText} label="Active Assessments" value={o.activeAssessments ?? 0} tone="primary" />
+        <StatCard icon={ClipboardCheck} label="Submissions" value={o.completedSubmissions ?? 0} tone="green" />
+        <StatCard icon={TrendingUp} label="Avg Class Score" value={`${o.avgClassScore ?? 0}%`} tone="amber" />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle className="text-base">Class Performance</CardTitle><CardDescription>Average score per assessment</CardDescription></CardHeader>
+          <CardContent style={{ height: 260 }}>
+            {(o.classPerformance || []).length === 0 ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">No submission data yet</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={o.classPerformance}><XAxis dataKey="name" fontSize={11} interval={0} /><YAxis domain={[0, 100]} fontSize={12} /><Tooltip /><Bar dataKey="avg" radius={[6, 6, 0, 0]} fill="hsl(var(--primary))" /></BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><AlertTriangle className="h-4 w-4 text-amber-500" />Needs Attention</CardTitle></CardHeader>
+          <CardContent>
+            {(o.needsAttention || []).length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">Everyone is on track 🎉</p>
+            ) : (
+              <div className="space-y-2">
+                {o.needsAttention.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2">
+                    <span className="text-sm font-medium">{s.name}{s.rollNo ? ` · #${s.rollNo}` : ''}</span>
+                    <Badge className="border-0 bg-red-100 text-red-700">{s.avg}%</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader><CardTitle className="text-base">Recent Assessments</CardTitle></CardHeader>
+          <CardContent>
+            {(o.recentAssessments || []).length === 0 ? (
+              <Empty icon={FileText} title="No assessments yet" hint="Generate your first AI question paper."
+                action={<Button onClick={() => go('generate')}><Sparkles className="mr-2 h-4 w-4" />Generate</Button>} />
+            ) : (
+              <div className="divide-y divide-border/60">
+                {o.recentAssessments.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between py-3">
+                    <div><div className="font-medium">{a.title}</div><div className="text-sm text-muted-foreground">{a.subject} · Class {a.className} · {a.questions} Qs</div></div>
+                    <Badge variant="secondary">{a.submissionCount} subs</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader><CardTitle className="text-base">Recent Submissions</CardTitle></CardHeader>
+          <CardContent>
+            {(o.recentSubmissions || []).length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">No submissions yet</p>
+            ) : (
+              <div className="divide-y divide-border/60">
+                {o.recentSubmissions.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between py-3">
+                    <div><div className="font-medium">{s.studentName}</div><div className="text-sm text-muted-foreground">{s.assessmentTitle}</div></div>
+                    <span className="text-sm font-semibold">{s.totalScore}/{s.totalMax}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
+
+/* ---------------- Question Bank (teacher) ---------------- */
+function QuestionBank({ onGenerate }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [filters, setFilters] = useState({ subject: '', theme: '', difficulty: 'all', type: 'all' })
+  const [selected, setSelected] = useState({})
+  const [buildOpen, setBuildOpen] = useState(false)
+
+  const load = () => api('/questions').then((d) => setItems(d.questions || [])).finally(() => setLoading(false))
+  useEffect(() => { load() }, [])
+
+  async function del(id) { await api(`/questions/${id}`, { method: 'DELETE' }); setItems((p) => p.filter((q) => q.id !== id)); setSelected((s) => { const n = { ...s }; delete n[id]; return n }) }
+
+  const subjects = [...new Set(items.map((q) => q.subject).filter(Boolean))]
+  const filtered = items.filter((q) =>
+    (!filters.subject || q.subject === filters.subject) &&
+    (!filters.theme || (q.theme || '').toLowerCase().includes(filters.theme.toLowerCase())) &&
+    (filters.difficulty === 'all' || q.difficulty === filters.difficulty) &&
+    (filters.type === 'all' || q.type === filters.type)
+  )
+  const selectedList = filtered.filter((q) => selected[q.id])
 
   if (loading) return <PageLoader />
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl bg-gradient-to-r from-primary to-blue-500 p-6 text-primary-foreground">
-        <h2 className="text-2xl font-bold">Hi {user.name.split(' ')[0]} 👋</h2>
-        <p className="mt-1 text-primary-foreground/85">Let AI handle the busywork. Generate a new assessment in under a minute.</p>
-        <Button variant="secondary" className="mt-4" onClick={() => go('generate')}>
-          <Wand2 className="mr-2 h-4 w-4" /> Generate Assessment
-        </Button>
-      </div>
+    <div className="space-y-4">
+      <Card><CardContent className="flex flex-wrap items-end gap-3 p-4">
+        <div className="space-y-1.5"><Label className="text-xs">Subject</Label>
+          <Select value={filters.subject || 'all'} onValueChange={(v) => setFilters((f) => ({ ...f, subject: v === 'all' ? '' : v }))}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="All" /></SelectTrigger>
+            <SelectContent><SelectItem value="all">All subjects</SelectItem>{subjects.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="space-y-1.5"><Label className="text-xs">Topic</Label><Input className="w-40" placeholder="Search topic" value={filters.theme} onChange={(e) => setFilters((f) => ({ ...f, theme: e.target.value }))} /></div>
+        <div className="space-y-1.5"><Label className="text-xs">Difficulty</Label>
+          <Select value={filters.difficulty} onValueChange={(v) => setFilters((f) => ({ ...f, difficulty: v }))}>
+            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>{['all', 'Easy', 'Medium', 'Hard', 'Mixed'].map((d) => <SelectItem key={d} value={d}>{d === 'all' ? 'Any' : d}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="space-y-1.5"><Label className="text-xs">Type</Label>
+          <Select value={filters.type} onValueChange={(v) => setFilters((f) => ({ ...f, type: v }))}>
+            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectContent><SelectItem value="all">Any</SelectItem>{Object.keys(QTYPE).map((t) => <SelectItem key={t} value={t}>{QTYPE[t]}</SelectItem>)}</SelectContent></Select>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <Badge variant="secondary">{filtered.length} shown</Badge>
+          <Button size="sm" disabled={selectedList.length === 0} onClick={() => setBuildOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Build Assessment ({selectedList.length})</Button>
+        </div>
+      </CardContent></Card>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard icon={FileText} label="Assessments" value={assessments.length} tone="primary" />
-        <StatCard icon={ClipboardCheck} label="Submissions" value={totalSubs} tone="green" />
-        <StatCard icon={Users} label="Students" value={students.length} tone="violet" />
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">Recent Assessments</CardTitle></CardHeader>
-        <CardContent>
-          {assessments.length === 0 ? (
-            <Empty icon={FileText} title="No assessments yet" hint="Generate your first AI question paper to get started."
-              action={<Button onClick={() => go('generate')}><Sparkles className="mr-2 h-4 w-4" />Generate</Button>} />
-          ) : (
-            <div className="divide-y divide-border/60">
-              {assessments.slice(0, 5).map((a) => (
-                <div key={a.id} className="flex items-center justify-between py-3">
-                  <div>
-                    <div className="font-medium">{a.title}</div>
-                    <div className="text-sm text-muted-foreground">{a.subject} · Class {a.className} · {a.questions.length} questions</div>
+      {filtered.length === 0 ? (
+        <Empty icon={Database} title="No questions match" hint="Adjust filters, or generate new questions."
+          action={<Button onClick={onGenerate}><Sparkles className="mr-2 h-4 w-4" />Generate</Button>} />
+      ) : (
+        <div className="space-y-2">
+          {filtered.slice(0, 100).map((q) => (
+            <Card key={q.id} className={selected[q.id] ? 'border-primary/50 bg-primary/5' : ''}>
+              <CardContent className="flex items-start gap-3 p-3">
+                <input type="checkbox" className="mt-1 h-4 w-4 accent-[hsl(var(--primary))]" checked={!!selected[q.id]} onChange={(e) => setSelected((s) => ({ ...s, [q.id]: e.target.checked }))} />
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <Badge className={TYPE_COLOR[q.type] + ' border-0'}>{QTYPE[q.type]}</Badge>
+                    <span className="text-xs text-muted-foreground">{q.subject} · {q.theme} · {q.difficulty} · {q.marks}m</span>
                   </div>
-                  <Badge variant="secondary">{a.submissionCount || 0} submissions</Badge>
+                  <p className="text-sm">{q.question}</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => del(q.id)}><Trash2 className="h-4 w-4" /></Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <BuildAssessmentDialog open={buildOpen} onClose={() => setBuildOpen(false)} questions={selectedList} onDone={() => { setBuildOpen(false); setSelected({}) }} />
     </div>
+  )
+}
+
+function BuildAssessmentDialog({ open, onClose, questions, onDone }) {
+  const [f, setF] = useState({ title: '', className: '', subject: '', dueDate: '' })
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    if (open && questions.length) setF((s) => ({ ...s, subject: questions[0].subject || '', className: questions[0].className || '', title: `${questions[0].subject || ''} — ${questions[0].theme || 'Assessment'}` }))
+  }, [open])
+  if (!open) return null
+  async function build() {
+    if (!f.title || !f.className) { toast.error('Title and class required'); return }
+    setBusy(true)
+    try {
+      await api('/assessments', { method: 'POST', body: {
+        title: f.title, className: f.className, subject: f.subject, theme: questions[0]?.theme || '',
+        difficulty: questions[0]?.difficulty || 'Mixed',
+        learningOutcomes: [...new Set(questions.map((q) => q.learningOutcome).filter(Boolean))],
+        questions, dueDate: f.dueDate,
+      } })
+      toast.success('Assessment created & students notified'); onDone()
+    } catch (e) { toast.error(e.message) } finally { setBusy(false) }
+  }
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Build Assessment from {questions.length} question(s)</DialogTitle></DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5"><Label>Title</Label><Input value={f.title} onChange={(e) => setF((s) => ({ ...s, title: e.target.value }))} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5"><Label>Class</Label><Input value={f.className} onChange={(e) => setF((s) => ({ ...s, className: e.target.value }))} placeholder="8A" /></div>
+            <div className="space-y-1.5"><Label>Due date</Label><Input type="date" value={f.dueDate} onChange={(e) => setF((s) => ({ ...s, dueDate: e.target.value }))} /></div>
+          </div>
+        </div>
+        <DialogFooter><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={build} disabled={busy}>{busy ? <Spinner className="mr-2" /> : null}Create & Assign</Button></DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -140,6 +317,26 @@ function Generate({ onPublished }) {
       toast.success('Assessment published & students notified')
       onPublished()
     } catch (e) { toast.error(e.message) } finally { setPub(false) }
+  }
+
+  function patchQ(id, patch) { setGen((g) => ({ ...g, questions: g.questions.map((q) => (q.id === id ? { ...q, ...patch } : q)) })) }
+  function delQ(id) { setGen((g) => ({ ...g, questions: g.questions.filter((q) => q.id !== id) })) }
+  async function regenQ(q) {
+    setRegenId(q.id)
+    try {
+      const { question } = await api('/ai/regenerate', { method: 'POST', body: {
+        className: f.className, subject: f.subject, syllabus: f.syllabus, theme: f.theme, difficulty: f.difficulty, type: q.type, learningOutcomes: gen.learningOutcomes,
+      } })
+      patchQ(q.id, { ...question, id: q.id })
+      toast.success('Question regenerated')
+    } catch (e) { toast.error(e.message) } finally { setRegenId(null) }
+  }
+  async function saveToBank() {
+    setSavingBank(true)
+    try {
+      await api('/questions', { method: 'POST', body: { className: f.className, subject: f.subject, theme: f.theme, difficulty: f.difficulty, questions: gen.questions } })
+      toast.success('Saved to Question Bank')
+    } catch (e) { toast.error(e.message) } finally { setSavingBank(false) }
   }
 
   return (

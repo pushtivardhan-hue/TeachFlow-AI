@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, Sparkles, FileText, ClipboardCheck, Users, Bell,
-  Wand2, Plus, Trash2, BarChart3, Send, CheckCircle2, Brain, Loader2, Pencil,
+  Wand2, Plus, Trash2, BarChart3, Send, CheckCircle2, Brain, Loader2, Pencil, Printer, Key,
 } from 'lucide-react'
+import { openPrintWindow, questionPaperHtml } from '@/lib/print'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -292,6 +293,10 @@ function AssessmentDetail({ id, onBack }) {
         <div>
           <h2 className="text-lg font-semibold">{a.title}</h2>
           <p className="text-sm text-muted-foreground">{a.subject} · Class {a.className} · {a.totalMarks} marks</p>
+        </div>
+        <div className="ml-auto flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => openPrintWindow(a.title, questionPaperHtml(a, { withAnswers: false }))}><Printer className="mr-1.5 h-3.5 w-3.5" />Print Paper</Button>
+          <Button variant="outline" size="sm" onClick={() => openPrintWindow(a.title + ' — Answer Key', questionPaperHtml(a, { withAnswers: true }))}><Key className="mr-1.5 h-3.5 w-3.5" />Answer Key</Button>
         </div>
       </div>
 

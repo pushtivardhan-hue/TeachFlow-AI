@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { LayoutDashboard, BookOpen, Trophy, User, Bell, Loader2, CheckCircle2, Send, TrendingUp, Sparkles } from 'lucide-react'
+import { LayoutDashboard, BookOpen, Trophy, User, Bell, Loader2, CheckCircle2, Send, TrendingUp, Sparkles, Printer } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +13,7 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/apiClient'
 import { AppShell, StatCard, Empty, Spinner } from '@/components/portals/shared'
+import { openPrintWindow, reportCardHtml } from '@/lib/print'
 import { toast } from 'sonner'
 
 const NAV = [
@@ -207,6 +208,9 @@ function Results({ user }) {
                 {Object.values(s.ai).map((g, i) => <p key={i} className="text-sm">{g.feedback}</p>)}
               </div>
             )}
+            <div className="mt-3 flex justify-end">
+              <Button variant="outline" size="sm" onClick={() => openPrintWindow('Report Card', reportCardHtml(s))}><Printer className="mr-1.5 h-3.5 w-3.5" />Download Report Card</Button>
+            </div>
           </CardContent></Card>
         )
       })}

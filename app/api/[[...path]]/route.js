@@ -577,6 +577,29 @@ async function handleRoute(request, { params }) {
       return json({ stats: { teachers, students, admins, assessments, submissions, questions, schools: schools.length } })
     }
 
+    // Seed 20 questions for a subject/theme into the question bank
+    if (route === '/admin/seed' && method === 'POST') {
+      if (!me || me.role !== 'superadmin') return json({ error: 'Forbidden' }, 403)
+      const body = await request.json()
+      const { className, subject, theme, difficulty } = body
+      if (!subject || !theme) return json({ error: 'subject and theme required' }, 400)
+      const learningOutcomes = ['Understand ' + theme, 'Apply ' + theme, 'Analyze ' + theme]
+      const result = await generateExam({
+        className: className || 'General', subject, syllabus: theme, theme,
+        difficulty: difficulty || 'Mixed', learningOutcomes,
+        counts: { mcq: 10, fill_blank: 5, descriptive: 5 },
+      })
+      const items = (result.questions || []).map((qq) => ({
+        id: uuidv4(), className: className || '', subject, theme,
+        difficulty: qq.difficulty || difficulty || 'Mixed', type: qq.type,
+        question: qq.question, options: qq.options || [], answer: qq.answer || '',
+        rubric: qq.rubric || [], marks: qq.marks || 1, learningOutcome: qq.learningOutcome || '',
+        explanation: qq.explanation || '', createdBy: 'seed', createdAt: new Date(),
+      }))
+      if (items.length) await db.collection('questions').insertMany(items)
+      return json({ seeded: items.length, subject, theme })
+    }
+
     return json({ error: `Route ${route} not found` }, 404)
   } catch (error) {
     console.error('API Error:', error)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { LayoutDashboard, Users, UserPlus, Loader2, Trash2, School, GraduationCap, FileText, ClipboardCheck, BookOpen } from 'lucide-react'
+import { LayoutDashboard, Users, UserPlus, Loader2, Trash2, School, GraduationCap, FileText, ClipboardCheck, BookOpen, Database, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -17,6 +17,7 @@ const NAV = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard },
   { key: 'users', label: 'Users', icon: Users },
   { key: 'onboard', label: 'Onboard', icon: UserPlus },
+  { key: 'bank', label: 'Question Bank', icon: Database },
 ]
 
 const ROLE_BADGE = {
@@ -32,7 +33,64 @@ export default function AdminPortal({ user, onLogout }) {
       {tab === 'overview' && <Overview />}
       {tab === 'users' && <UsersView />}
       {tab === 'onboard' && <Onboard onDone={() => setTab('users')} />}
+      {tab === 'bank' && <Bank />}
     </AppShell>
+  )
+}
+
+function Bank() {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [f, setF] = useState({ className: '8', subject: 'Science', theme: '', difficulty: 'Mixed' })
+  const [busy, setBusy] = useState(false)
+  const set = (k) => (e) => setF((s) => ({ ...s, [k]: e?.target ? e.target.value : e }))
+  const load = () => api('/questions').then((d) => setItems(d.questions || [])).finally(() => setLoading(false))
+  useEffect(() => { load() }, [])
+
+  async function seed() {
+    if (!f.subject || !f.theme) { toast.error('Enter subject and theme'); return }
+    setBusy(true)
+    try { const d = await api('/admin/seed', { method: 'POST', body: f }); toast.success(`Seeded ${d.seeded} questions`); load() }
+    catch (e) { toast.error(e.message) } finally { setBusy(false) }
+  }
+
+  const bySubject = items.reduce((acc, q) => { acc[q.subject] = (acc[q.subject] || 0) + 1; return acc }, {})
+
+  return (
+    <div className="space-y-5">
+      <Card><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Sparkles className="h-4 w-4 text-primary" />Seed Question Bank</CardTitle>
+        <CardDescription>Generate 20 AI questions for a subject/theme to bootstrap the platform (~15s).</CardDescription></CardHeader>
+        <CardContent className="flex flex-wrap items-end gap-3">
+          <div className="space-y-1.5"><Label>Class</Label><Input className="w-24" value={f.className} onChange={set('className')} /></div>
+          <div className="space-y-1.5"><Label>Subject</Label><Input className="w-40" value={f.subject} onChange={set('subject')} /></div>
+          <div className="space-y-1.5"><Label>Theme</Label><Input className="w-52" value={f.theme} onChange={set('theme')} placeholder="Photosynthesis" /></div>
+          <div className="space-y-1.5"><Label>Difficulty</Label>
+            <Select value={f.difficulty} onValueChange={set('difficulty')}><SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+              <SelectContent>{['Easy', 'Medium', 'Hard', 'Mixed'].map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent></Select>
+          </div>
+          <Button onClick={seed} disabled={busy}>{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}Seed 20</Button>
+        </CardContent>
+      </Card>
+
+      <div className="flex flex-wrap gap-2">
+        {Object.entries(bySubject).map(([s, c]) => <Badge key={s} variant="secondary">{s}: {c}</Badge>)}
+        <Badge className="border-0 bg-primary/10 text-primary">Total: {items.length}</Badge>
+      </div>
+
+      {loading ? <PageLoader /> : items.length === 0 ? <Empty icon={Database} title="Question bank is empty" hint="Seed some questions above." /> : (
+        <Card><CardContent className="p-0"><Table>
+          <TableHeader><TableRow><TableHead>Question</TableHead><TableHead>Subject</TableHead><TableHead>Theme</TableHead><TableHead>Type</TableHead></TableRow></TableHeader>
+          <TableBody>{items.slice(0, 100).map((q) => (
+            <TableRow key={q.id}>
+              <TableCell className="max-w-md truncate">{q.question}</TableCell>
+              <TableCell>{q.subject}</TableCell>
+              <TableCell className="text-muted-foreground">{q.theme}</TableCell>
+              <TableCell><Badge variant="outline">{q.type}</Badge></TableCell>
+            </TableRow>
+          ))}</TableBody>
+        </Table></CardContent></Card>
+      )}
+    </div>
   )
 }
 

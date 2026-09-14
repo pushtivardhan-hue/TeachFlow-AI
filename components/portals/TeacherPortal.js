@@ -292,6 +292,8 @@ function Generate({ onPublished }) {
   const [gen, setGen] = useState(null)
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
+  const [regenId, setRegenId] = useState(null)
+  const [savingBank, setSavingBank] = useState(false)
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e?.target ? e.target.value : e }))
 
   async function generate() {
@@ -708,17 +710,74 @@ function SubmissionReview({ sub, assessment, onApproved }) {
             {q.type === 'descriptive' && (
               <div className="mt-2 rounded-md bg-muted/50 p-3">
                 {ai ? (
-                  <>
-                    <p className="text-sm text-muted-foreground">{ai.feedback}</p>
-                    {ai.improvements?.length > 0 && <p className="mt-1 text-xs text-amber-700">To improve: {ai.improvements.join(', ')}</p>}
-                    <div className="mt-2 flex items-center gap-2">
-                      <Label className="text-xs">Score (AI suggested {ai.score}/{q.marks}):</Label>
-                      <Input type="number" min="0" max={q.marks} step="0.5" className="h-8 w-24"
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Brain className="h-4 w-4 text-primary" />
+                      <span className="text-sm font-semibold">AI Evaluation</span>
+                      {typeof ai.confidence === 'number' && (
+                        <Badge variant="outline" className="ml-auto gap-1 font-normal"><Gauge className="h-3 w-3" />{ai.confidence}% confidence</Badge>
+                      )}
+                    </div>
+
+                    <p className="text-sm">{ai.feedback}</p>
+
+                    {ai.rubricBreakdown?.length > 0 && (
+                      <div className="rounded-md border border-border/60 bg-card p-2">
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">Rubric breakdown</p>
+                        <div className="space-y-1">
+                          {ai.rubricBreakdown.map((r, ri) => (
+                            <div key={ri} className="flex items-start justify-between gap-2 text-xs">
+                              <span className="text-muted-foreground">{r.criterion}{r.comment ? ` — ${r.comment}` : ''}</span>
+                              <span className="shrink-0 font-medium">{r.score}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {ai.strengths?.length > 0 && (
+                        <div className="rounded-md bg-emerald-50 p-2 text-xs text-emerald-800">
+                          <p className="mb-0.5 font-medium">Strengths</p>
+                          <ul className="list-disc pl-4">{ai.strengths.map((s, si) => <li key={si}>{s}</li>)}</ul>
+                        </div>
+                      )}
+                      {ai.improvements?.length > 0 && (
+                        <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-800">
+                          <p className="mb-0.5 font-medium">Weaknesses</p>
+                          <ul className="list-disc pl-4">{ai.improvements.map((s, si) => <li key={si}>{s}</li>)}</ul>
+                        </div>
+                      )}
+                    </div>
+
+                    {ai.misconception && ai.misconception !== 'None detected' && (
+                      <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-800">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span><span className="font-semibold">Misconception:</span> {ai.misconception}</span>
+                      </div>
+                    )}
+
+                    {ai.remediation && ai.remediation.concept && (
+                      <div className="rounded-md border border-primary/20 bg-primary/5 p-2 text-xs">
+                        <p className="flex items-center gap-1.5 font-medium text-primary"><Lightbulb className="h-3.5 w-3.5" />Recommended remediation
+                          {ai.remediation.difficulty && <Badge variant="outline" className="ml-1 font-normal">{ai.remediation.difficulty}</Badge>}
+                        </p>
+                        <p className="mt-1"><span className="font-medium">Review:</span> {ai.remediation.concept}</p>
+                        {ai.remediation.explanation && <p className="mt-0.5 text-muted-foreground">{ai.remediation.explanation}</p>}
+                        {ai.remediation.practice && <p className="mt-0.5"><span className="font-medium">Practice:</span> {ai.remediation.practice}</p>}
+                        {ai.remediation.nextStep && <p className="mt-0.5"><span className="font-medium">Next step:</span> {ai.remediation.nextStep}</p>}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+                      <span className="text-sm font-medium text-primary">AI Suggested: {ai.score}/{q.marks}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">Modify final score:</span>
+                      <Input type="number" min="0" max={q.marks} step="0.5" className="h-8 w-20"
                         value={scores[q.id]} onChange={(e) => setScores((s) => ({ ...s, [q.id]: e.target.value }))} />
                       <span className="text-xs text-muted-foreground">/ {q.marks}</span>
                     </div>
-                  </>
-                ) : <p className="text-sm text-muted-foreground">Run AI grading to see a suggested score.</p>}
+                  </div>
+                ) : <p className="text-sm text-muted-foreground">Run AI grading to see the rubric score, misconception and remediation.</p>}
               </div>
             )}
           </div>

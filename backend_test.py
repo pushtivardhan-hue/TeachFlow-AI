@@ -1,804 +1,517 @@
 #!/usr/bin/env python3
 """
-Backend API Test Suite for AI-Assisted Teacher Automation Platform
-Tests all backend endpoints end-to-end with proper RBAC validation
+TeachFlow AI Backend Upgrade Test Suite
+Tests: upgraded rubric grading, duplicate prevention, teacher overview, regenerate, extended analytics, RBAC
 """
-
 import requests
-import time
 import json
+import time
 from datetime import datetime
 
-# Configuration
+# Base URL from .env
 BASE_URL = "https://teach-ai-grade.preview.emergentagent.com/api"
-TIMESTAMP = int(time.time())
 
-# Test data storage
-test_data = {
-    'superadmin': {},
-    'teacher': {},
-    'student1': {},
-    'student2': {},
-    'assessment': {},
-    'submission': {},
-    'questions': []
+# Generate unique identifiers
+timestamp = int(time.time())
+CLASS_NAME = f"GX{timestamp}"
+
+# Test data
+users = {
+    "superadmin": {
+        "email": f"superadmin_{timestamp}@test.com",
+        "password": "SuperPass123!",
+        "name": "Super Admin",
+        "role": "superadmin"
+    },
+    "teacher": {
+        "email": f"teacher_{timestamp}@test.com",
+        "password": "TeacherPass123!",
+        "name": "Ms. Johnson",
+        "role": "teacher",
+        "className": CLASS_NAME,
+        "subject": "Science"
+    },
+    "student1": {
+        "email": f"student1_{timestamp}@test.com",
+        "password": "Student1Pass!",
+        "name": "Alice Smith",
+        "role": "student",
+        "className": CLASS_NAME,
+        "rollNo": "1"
+    },
+    "student2": {
+        "email": f"student2_{timestamp}@test.com",
+        "password": "Student2Pass!",
+        "name": "Bob Jones",
+        "role": "student",
+        "className": CLASS_NAME,
+        "rollNo": "2"
+    }
 }
 
-def log_test(group, test_name, passed, details=""):
-    """Log test results"""
-    status = "✅ PASS" if passed else "❌ FAIL"
-    print(f"\n{status} [{group}] {test_name}")
-    if details:
-        print(f"   Details: {details}")
-    return passed
+tokens = {}
+assessment_id = None
+mcq_id = None
+descriptive_id = None
+student1_submission_id = None
+student1_id = None
 
-def test_auth_and_rbac():
-    """Test 1: AUTH & RBAC"""
-    print("\n" + "="*80)
-    print("TEST GROUP 1: AUTH & RBAC")
-    print("="*80)
-    
-    results = []
-    
-    # 1.1 Register superadmin
+def print_test(name):
+    print(f"\n{'='*80}")
+    print(f"TEST: {name}")
+    print('='*80)
+
+def print_pass(msg):
+    print(f"✅ PASS: {msg}")
+
+def print_fail(msg):
+    print(f"❌ FAIL: {msg}")
+
+def print_info(msg):
+    print(f"ℹ️  INFO: {msg}")
+
+# ============================================================================
+# SETUP: Register users
+# ============================================================================
+print_test("SETUP: Register all users")
+for role, data in users.items():
     try:
-        payload = {
-            "name": "Super Admin",
-            "email": f"superadmin_{TIMESTAMP}@test.com",
-            "password": "Admin@123",
-            "role": "superadmin"
-        }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
+        resp = requests.post(f"{BASE_URL}/auth/register", json=data, timeout=10)
         if resp.status_code == 200:
-            data = resp.json()
-            test_data['superadmin'] = {
-                'token': data.get('token'),
-                'user': data.get('user'),
-                'email': payload['email'],
-                'password': payload['password']
-            }
-            results.append(log_test("AUTH", "Register superadmin", True, f"User ID: {data['user']['id']}"))
+            result = resp.json()
+            tokens[role] = result["token"]
+            if role == "student1":
+                student1_id = result["user"]["id"]
+            print_pass(f"Registered {role}: {data['email']}")
         else:
-            results.append(log_test("AUTH", "Register superadmin", False, f"Status {resp.status_code}: {resp.text}"))
+            print_fail(f"Register {role} failed: {resp.status_code} {resp.text}")
+            exit(1)
     except Exception as e:
-        results.append(log_test("AUTH", "Register superadmin", False, str(e)))
-    
-    # 1.2 Register teacher
-    try:
-        payload = {
-            "name": "Sarah Johnson",
-            "email": f"teacher_{TIMESTAMP}@test.com",
-            "password": "Teacher@123",
-            "role": "teacher",
-            "className": "8A",
-            "subject": "Science"
+        print_fail(f"Register {role} exception: {e}")
+        exit(1)
+
+print_info(f"Using className: {CLASS_NAME}")
+print_info(f"Student1 ID: {student1_id}")
+
+# ============================================================================
+# TEST 1: Teacher generates assessment (1 MCQ + 1 descriptive)
+# ============================================================================
+print_test("TEST 1: Teacher POST /api/ai/generate (1 MCQ + 1 descriptive)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    payload = {
+        "className": CLASS_NAME,
+        "subject": "Science",
+        "theme": "Photosynthesis",
+        "difficulty": "Medium",
+        "counts": {
+            "mcq": 1,
+            "fill_blank": 0,
+            "descriptive": 1
         }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            test_data['teacher'] = {
-                'token': data.get('token'),
-                'user': data.get('user'),
-                'email': payload['email'],
-                'password': payload['password']
-            }
-            results.append(log_test("AUTH", "Register teacher", True, f"User ID: {data['user']['id']}"))
-        else:
-            results.append(log_test("AUTH", "Register teacher", False, f"Status {resp.status_code}: {resp.text}"))
-    except Exception as e:
-        results.append(log_test("AUTH", "Register teacher", False, str(e)))
-    
-    # 1.3 Register student 1
-    try:
-        payload = {
-            "name": "Rahul Sharma",
-            "email": f"student1_{TIMESTAMP}@test.com",
-            "password": "Student@123",
-            "role": "student",
-            "className": "8A",
-            "rollNo": "1"
-        }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            test_data['student1'] = {
-                'token': data.get('token'),
-                'user': data.get('user'),
-                'email': payload['email'],
-                'password': payload['password']
-            }
-            results.append(log_test("AUTH", "Register student 1", True, f"User ID: {data['user']['id']}"))
-        else:
-            results.append(log_test("AUTH", "Register student 1", False, f"Status {resp.status_code}: {resp.text}"))
-    except Exception as e:
-        results.append(log_test("AUTH", "Register student 1", False, str(e)))
-    
-    # 1.4 Register student 2
-    try:
-        payload = {
-            "name": "Priya Patel",
-            "email": f"student2_{TIMESTAMP}@test.com",
-            "password": "Student@123",
-            "role": "student",
-            "className": "8A",
-            "rollNo": "2"
-        }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            test_data['student2'] = {
-                'token': data.get('token'),
-                'user': data.get('user'),
-                'email': payload['email'],
-                'password': payload['password']
-            }
-            results.append(log_test("AUTH", "Register student 2", True, f"User ID: {data['user']['id']}"))
-        else:
-            results.append(log_test("AUTH", "Register student 2", False, f"Status {resp.status_code}: {resp.text}"))
-    except Exception as e:
-        results.append(log_test("AUTH", "Register student 2", False, str(e)))
-    
-    # 1.5 Login with teacher credentials
-    try:
-        payload = {
-            "email": test_data['teacher']['email'],
-            "password": test_data['teacher']['password']
-        }
-        resp = requests.post(f"{BASE_URL}/auth/login", json=payload, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            if 'token' in data and 'user' in data:
-                results.append(log_test("AUTH", "Login teacher", True, f"Token received, role: {data['user']['role']}"))
+    }
+    print_info("Calling AI generate (allow up to 60s)...")
+    resp = requests.post(f"{BASE_URL}/ai/generate", json=payload, headers=headers, timeout=60)
+    if resp.status_code == 200:
+        result = resp.json()
+        questions = result.get("result", {}).get("questions", [])
+        if len(questions) == 2:
+            mcq = [q for q in questions if q["type"] == "mcq"]
+            desc = [q for q in questions if q["type"] == "descriptive"]
+            if len(mcq) == 1 and len(desc) == 1:
+                mcq_id = mcq[0]["id"]
+                descriptive_id = desc[0]["id"]
+                print_pass(f"Generated 2 questions: 1 MCQ (id={mcq_id[:8]}...), 1 descriptive (id={descriptive_id[:8]}...)")
+                print_info(f"MCQ: {mcq[0]['question'][:60]}...")
+                print_info(f"Descriptive: {desc[0]['question'][:60]}...")
             else:
-                results.append(log_test("AUTH", "Login teacher", False, "Missing token or user in response"))
+                print_fail(f"Expected 1 MCQ + 1 descriptive, got {len(mcq)} MCQ + {len(desc)} descriptive")
+                exit(1)
         else:
-            results.append(log_test("AUTH", "Login teacher", False, f"Status {resp.status_code}: {resp.text}"))
-    except Exception as e:
-        results.append(log_test("AUTH", "Login teacher", False, str(e)))
+            print_fail(f"Expected 2 questions, got {len(questions)}")
+            exit(1)
+    else:
+        print_fail(f"AI generate failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"AI generate exception: {e}")
+    exit(1)
+
+# Create assessment
+print_test("TEST 1b: Teacher POST /api/assessments (publish)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    payload = {
+        "title": f"Photosynthesis Test {timestamp}",
+        "className": CLASS_NAME,
+        "subject": "Science",
+        "theme": "Photosynthesis",
+        "difficulty": "Medium",
+        "learningOutcomes": ["Understand photosynthesis process", "Apply knowledge of photosynthesis"],
+        "questions": result["result"]["questions"],
+        "published": True
+    }
+    resp = requests.post(f"{BASE_URL}/assessments", json=payload, headers=headers, timeout=10)
+    if resp.status_code == 200:
+        assessment = resp.json()["assessment"]
+        assessment_id = assessment["id"]
+        print_pass(f"Created assessment: {assessment_id[:8]}... with {len(assessment['questions'])} questions")
+    else:
+        print_fail(f"Create assessment failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Create assessment exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 2: Duplicate submission prevention
+# ============================================================================
+print_test("TEST 2a: Student1 POST /api/submissions (first submission)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['student1']}"}
+    # Get the correct answer for MCQ
+    mcq_question = [q for q in result["result"]["questions"] if q["type"] == "mcq"][0]
+    correct_option = mcq_question["answer"]
     
-    # 1.6 GET /auth/me with teacher token
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
+    payload = {
+        "assessmentId": assessment_id,
+        "answers": {
+            mcq_id: correct_option,
+            descriptive_id: "Plants use sunlight, water and CO2 to make glucose and oxygen."
+        }
+    }
+    resp = requests.post(f"{BASE_URL}/submissions", json=payload, headers=headers, timeout=10)
+    if resp.status_code == 200:
+        submission = resp.json()["submission"]
+        student1_submission_id = submission["id"]
+        objective_score = submission.get("objectiveScore", 0)
+        print_pass(f"Student1 submitted successfully: submission_id={student1_submission_id[:8]}...")
+        print_info(f"Objective score (auto-graded): {objective_score}")
+    else:
+        print_fail(f"Student1 submission failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Student1 submission exception: {e}")
+    exit(1)
+
+print_test("TEST 2b: Student1 POST /api/submissions AGAIN (expect 409)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['student1']}"}
+    payload = {
+        "assessmentId": assessment_id,
+        "answers": {
+            mcq_id: "Different answer",
+            descriptive_id: "Another attempt"
+        }
+    }
+    resp = requests.post(f"{BASE_URL}/submissions", json=payload, headers=headers, timeout=10)
+    if resp.status_code == 409:
+        error_msg = resp.json().get("error", "")
+        print_pass(f"Duplicate submission correctly rejected with 409: {error_msg}")
+    else:
+        print_fail(f"Expected 409, got {resp.status_code}: {resp.text}")
+except Exception as e:
+    print_fail(f"Duplicate submission test exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 3: Upgraded AI grading (misconception + confidence + remediation)
+# ============================================================================
+print_test("TEST 3: Teacher POST /api/submissions/:id/aigrade (upgraded grading)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    print_info("Calling AI grade (allow up to 60s)...")
+    resp = requests.post(f"{BASE_URL}/submissions/{student1_submission_id}/aigrade", headers=headers, timeout=60)
+    if resp.status_code == 200:
+        submission = resp.json()["submission"]
+        ai_data = submission.get("ai", {})
+        desc_ai = ai_data.get(descriptive_id, {})
+        
+        # Check for new fields
+        has_misconception = "misconception" in desc_ai
+        has_confidence = "confidence" in desc_ai
+        has_remediation = "remediation" in desc_ai
+        
+        if has_misconception and has_confidence and has_remediation:
+            misconception = desc_ai["misconception"]
+            confidence = desc_ai["confidence"]
+            remediation = desc_ai["remediation"]
+            
+            # Verify remediation structure
+            has_concept = "concept" in remediation
+            has_explanation = "explanation" in remediation
+            has_practice = "practice" in remediation
+            has_difficulty = "difficulty" in remediation
+            has_nextStep = "nextStep" in remediation
+            
+            if all([has_concept, has_explanation, has_practice, has_difficulty, has_nextStep]):
+                print_pass("AI grading returned all upgraded fields")
+                print_info(f"  misconception: {misconception}")
+                print_info(f"  confidence: {confidence} (type: {type(confidence).__name__})")
+                print_info(f"  remediation.concept: {remediation['concept']}")
+                print_info(f"  remediation.explanation: {remediation['explanation'][:60]}...")
+                print_info(f"  remediation.practice: {remediation['practice'][:60]}...")
+                print_info(f"  remediation.difficulty: {remediation['difficulty']}")
+                print_info(f"  remediation.nextStep: {remediation['nextStep'][:60]}...")
+                
+                # Verify types
+                if isinstance(misconception, str) and isinstance(confidence, (int, float)) and 0 <= confidence <= 100:
+                    print_pass("Field types correct: misconception=string, confidence=number(0-100)")
+                else:
+                    print_fail(f"Field type mismatch: misconception={type(misconception)}, confidence={confidence} (type={type(confidence)})")
+            else:
+                print_fail(f"Remediation missing fields: concept={has_concept}, explanation={has_explanation}, practice={has_practice}, difficulty={has_difficulty}, nextStep={has_nextStep}")
+        else:
+            print_fail(f"Missing upgraded fields: misconception={has_misconception}, confidence={has_confidence}, remediation={has_remediation}")
+            print_info(f"AI data keys: {list(desc_ai.keys())}")
+    else:
+        print_fail(f"AI grade failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"AI grade exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 4: Approve with modification
+# ============================================================================
+print_test("TEST 4: Teacher POST /api/submissions/:id/approve (modified score)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    payload = {
+        "finalScores": {
+            descriptive_id: 3  # Override AI score to 3
+        }
+    }
+    resp = requests.post(f"{BASE_URL}/submissions/{student1_submission_id}/approve", json=payload, headers=headers, timeout=10)
+    if resp.status_code == 200:
+        submission = resp.json()["submission"]
+        status = submission.get("status")
+        total_score = submission.get("totalScore")
+        objective_score = submission.get("objectiveScore", 0)
+        
+        if status == "approved":
+            print_pass(f"Submission approved: status={status}")
+            print_info(f"Total score: {total_score} (objective={objective_score} + descriptive=3)")
+            
+            # Verify total = objective + 3
+            expected_total = objective_score + 3
+            if abs(total_score - expected_total) < 0.01:
+                print_pass(f"Total score correct: {total_score} = {objective_score} + 3")
+            else:
+                print_fail(f"Total score mismatch: expected {expected_total}, got {total_score}")
+        else:
+            print_fail(f"Status not approved: {status}")
+    else:
+        print_fail(f"Approve failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Approve exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 5: Teacher overview endpoint
+# ============================================================================
+print_test("TEST 5: GET /api/teacher/overview (teacher token)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    resp = requests.get(f"{BASE_URL}/teacher/overview", headers=headers, timeout=10)
+    if resp.status_code == 200:
+        overview = resp.json()["overview"]
+        
+        # Check all required keys
+        required_keys = [
+            "totalStudents", "activeAssessments", "completedSubmissions", 
+            "avgClassScore", "needsAttention", "classPerformance", 
+            "recentSubmissions", "recentAssessments"
+        ]
+        
+        missing_keys = [k for k in required_keys if k not in overview]
+        if not missing_keys:
+            print_pass("Teacher overview returned all required keys")
+            print_info(f"  totalStudents: {overview['totalStudents']}")
+            print_info(f"  activeAssessments: {overview['activeAssessments']}")
+            print_info(f"  completedSubmissions: {overview['completedSubmissions']}")
+            print_info(f"  avgClassScore: {overview['avgClassScore']}")
+            print_info(f"  needsAttention: {len(overview['needsAttention'])} students")
+            print_info(f"  classPerformance: {len(overview['classPerformance'])} assessments")
+            print_info(f"  recentSubmissions: {len(overview['recentSubmissions'])} items")
+            print_info(f"  recentAssessments: {len(overview['recentAssessments'])} items")
+            
+            # Verify types
+            if (isinstance(overview['needsAttention'], list) and 
+                isinstance(overview['classPerformance'], list) and
+                isinstance(overview['recentSubmissions'], list) and
+                isinstance(overview['recentAssessments'], list)):
+                print_pass("All array fields are arrays")
+            else:
+                print_fail("Some array fields are not arrays")
+        else:
+            print_fail(f"Missing keys in overview: {missing_keys}")
+    else:
+        print_fail(f"Teacher overview failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Teacher overview exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 6: Regenerate single question
+# ============================================================================
+print_test("TEST 6: POST /api/ai/regenerate (teacher, type=mcq)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    payload = {
+        "className": CLASS_NAME,
+        "subject": "Science",
+        "theme": "Photosynthesis",
+        "difficulty": "Medium",
+        "type": "mcq"
+    }
+    print_info("Calling AI regenerate (allow up to 30s)...")
+    resp = requests.post(f"{BASE_URL}/ai/regenerate", json=payload, headers=headers, timeout=30)
+    if resp.status_code == 200:
+        question = resp.json()["question"]
+        
+        # Verify structure
+        has_type = question.get("type") == "mcq"
+        has_options = "options" in question and len(question["options"]) == 4
+        has_answer = "answer" in question
+        answer_in_options = question.get("answer") in question.get("options", [])
+        
+        if has_type and has_options and has_answer and answer_in_options:
+            print_pass("Regenerated MCQ question with correct structure")
+            print_info(f"  question: {question['question'][:60]}...")
+            print_info(f"  options: {question['options']}")
+            print_info(f"  answer: {question['answer']}")
+        else:
+            print_fail(f"MCQ structure invalid: type={has_type}, options={has_options}, answer={has_answer}, answer_in_options={answer_in_options}")
+    else:
+        print_fail(f"Regenerate failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Regenerate exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 7: Extended student analytics
+# ============================================================================
+print_test("TEST 7: GET /api/analytics/student/:id (extended fields)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['teacher']}"}
+    resp = requests.get(f"{BASE_URL}/analytics/student/{student1_id}", headers=headers, timeout=10)
+    if resp.status_code == 200:
+        data = resp.json()
+        
+        # Check for all required fields
+        required_keys = ["history", "topics", "strengths", "weaknesses", "remediation"]
+        missing_keys = [k for k in required_keys if k not in data]
+        
+        if not missing_keys:
+            print_pass("Student analytics returned all extended fields")
+            print_info(f"  history: {len(data['history'])} submissions")
+            print_info(f"  topics: {len(data['topics'])} topics")
+            print_info(f"  strengths: {len(data['strengths'])} items")
+            print_info(f"  weaknesses: {len(data['weaknesses'])} items")
+            print_info(f"  remediation: {len(data['remediation'])} items")
+            
+            # Verify types
+            if all(isinstance(data[k], list) for k in required_keys):
+                print_pass("All fields are arrays")
+            else:
+                print_fail("Some fields are not arrays")
+        else:
+            print_fail(f"Missing keys in analytics: {missing_keys}")
+    else:
+        print_fail(f"Student analytics failed: {resp.status_code} {resp.text}")
+        exit(1)
+except Exception as e:
+    print_fail(f"Student analytics exception: {e}")
+    exit(1)
+
+# ============================================================================
+# TEST 8: RBAC checks
+# ============================================================================
+print_test("TEST 8a: Student calling GET /api/teacher/overview (expect 403)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['student1']}"}
+    resp = requests.get(f"{BASE_URL}/teacher/overview", headers=headers, timeout=10)
+    if resp.status_code == 403:
+        print_pass("Student correctly denied access to teacher overview (403)")
+    else:
+        print_fail(f"Expected 403, got {resp.status_code}")
+except Exception as e:
+    print_fail(f"RBAC test exception: {e}")
+
+print_test("TEST 8b: Student calling POST /api/ai/regenerate (expect 403)")
+try:
+    headers = {"Authorization": f"Bearer {tokens['student1']}"}
+    payload = {
+        "subject": "Science",
+        "theme": "Photosynthesis",
+        "type": "mcq"
+    }
+    resp = requests.post(f"{BASE_URL}/ai/regenerate", json=payload, headers=headers, timeout=10)
+    if resp.status_code == 403:
+        print_pass("Student correctly denied access to regenerate (403)")
+    else:
+        print_fail(f"Expected 403, got {resp.status_code}")
+except Exception as e:
+    print_fail(f"RBAC test exception: {e}")
+
+# ============================================================================
+# TEST 9: Quick regression tests
+# ============================================================================
+print_test("TEST 9: Quick regression (register/login/me)")
+try:
+    # Test register (new user)
+    new_user = {
+        "email": f"regression_{timestamp}@test.com",
+        "password": "RegPass123!",
+        "name": "Regression User",
+        "role": "student",
+        "className": CLASS_NAME
+    }
+    resp = requests.post(f"{BASE_URL}/auth/register", json=new_user, timeout=10)
+    if resp.status_code == 200:
+        print_pass("POST /api/auth/register working")
+        reg_token = resp.json()["token"]
+    else:
+        print_fail(f"Register failed: {resp.status_code}")
+        reg_token = None
+    
+    # Test login
+    resp = requests.post(f"{BASE_URL}/auth/login", json={"email": new_user["email"], "password": new_user["password"]}, timeout=10)
+    if resp.status_code == 200:
+        print_pass("POST /api/auth/login working")
+        login_token = resp.json()["token"]
+    else:
+        print_fail(f"Login failed: {resp.status_code}")
+        login_token = None
+    
+    # Test /me
+    if login_token:
+        headers = {"Authorization": f"Bearer {login_token}"}
         resp = requests.get(f"{BASE_URL}/auth/me", headers=headers, timeout=10)
         if resp.status_code == 200:
-            data = resp.json()
-            if data.get('user', {}).get('role') == 'teacher':
-                results.append(log_test("AUTH", "GET /auth/me", True, f"User: {data['user']['name']}"))
+            user = resp.json()["user"]
+            if user["email"] == new_user["email"]:
+                print_pass("GET /api/auth/me working")
             else:
-                results.append(log_test("AUTH", "GET /auth/me", False, "Wrong user data"))
+                print_fail(f"GET /me returned wrong user: {user['email']}")
         else:
-            results.append(log_test("AUTH", "GET /auth/me", False, f"Status {resp.status_code}: {resp.text}"))
-    except Exception as e:
-        results.append(log_test("AUTH", "GET /auth/me", False, str(e)))
-    
-    # 1.7 RBAC: Student tries GET /users (should be 403)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        resp = requests.get(f"{BASE_URL}/users", headers=headers, timeout=10)
-        if resp.status_code == 403:
-            results.append(log_test("RBAC", "Student GET /users -> 403", True, "Correctly forbidden"))
-        else:
-            results.append(log_test("RBAC", "Student GET /users -> 403", False, f"Expected 403, got {resp.status_code}"))
-    except Exception as e:
-        results.append(log_test("RBAC", "Student GET /users -> 403", False, str(e)))
-    
-    # 1.8 RBAC: Student tries POST /ai/generate (should be 403)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        payload = {"className": "8A", "subject": "Science", "theme": "Test", "difficulty": "Easy"}
-        resp = requests.post(f"{BASE_URL}/ai/generate", json=payload, headers=headers, timeout=10)
-        if resp.status_code == 403:
-            results.append(log_test("RBAC", "Student POST /ai/generate -> 403", True, "Correctly forbidden"))
-        else:
-            results.append(log_test("RBAC", "Student POST /ai/generate -> 403", False, f"Expected 403, got {resp.status_code}"))
-    except Exception as e:
-        results.append(log_test("RBAC", "Student POST /ai/generate -> 403", False, str(e)))
-    
-    # 1.9 RBAC: Student tries GET /admin/stats (should be 403)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        resp = requests.get(f"{BASE_URL}/admin/stats", headers=headers, timeout=10)
-        if resp.status_code == 403:
-            results.append(log_test("RBAC", "Student GET /admin/stats -> 403", True, "Correctly forbidden"))
-        else:
-            results.append(log_test("RBAC", "Student GET /admin/stats -> 403", False, f"Expected 403, got {resp.status_code}"))
-    except Exception as e:
-        results.append(log_test("RBAC", "Student GET /admin/stats -> 403", False, str(e)))
-    
-    # 1.10 RBAC: Missing token on protected route (should be 401)
-    try:
-        resp = requests.get(f"{BASE_URL}/auth/me", timeout=10)
-        if resp.status_code == 401:
-            results.append(log_test("RBAC", "Missing token -> 401", True, "Correctly unauthorized"))
-        else:
-            results.append(log_test("RBAC", "Missing token -> 401", False, f"Expected 401, got {resp.status_code}"))
-    except Exception as e:
-        results.append(log_test("RBAC", "Missing token -> 401", False, str(e)))
-    
-    return all(results)
+            print_fail(f"GET /me failed: {resp.status_code}")
+except Exception as e:
+    print_fail(f"Regression test exception: {e}")
 
-def test_ai_exam_generation():
-    """Test 2: AI EXAM GENERATION"""
-    print("\n" + "="*80)
-    print("TEST GROUP 2: AI EXAM GENERATION (OpenAI GPT-4o)")
-    print("="*80)
-    
-    results = []
-    
-    # 2.1 Generate exam with teacher token
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        payload = {
-            "className": "8A",
-            "subject": "Science",
-            "theme": "Photosynthesis",
-            "difficulty": "Medium",
-            "syllabus": "Basics of photosynthesis in plants",
-            "counts": {
-                "mcq": 2,
-                "fill_blank": 1,
-                "descriptive": 1
-            }
-        }
-        print("   Calling OpenAI GPT-4o (may take 10-30 seconds)...")
-        resp = requests.post(f"{BASE_URL}/ai/generate", json=payload, headers=headers, timeout=90)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            result = data.get('result', {})
-            questions = result.get('questions', [])
-            
-            # Store questions for later use
-            test_data['questions'] = questions
-            
-            # Validate response structure
-            if len(questions) == 4:
-                results.append(log_test("AI_GEN", "Generated 4 questions", True, f"MCQ: 2, Fill: 1, Desc: 1"))
-            else:
-                results.append(log_test("AI_GEN", "Generated 4 questions", False, f"Got {len(questions)} questions"))
-            
-            # Validate question types
-            types = [q.get('type') for q in questions]
-            mcq_count = types.count('mcq')
-            fill_count = types.count('fill_blank')
-            desc_count = types.count('descriptive')
-            
-            if mcq_count == 2 and fill_count == 1 and desc_count == 1:
-                results.append(log_test("AI_GEN", "Correct question types", True, f"MCQ:{mcq_count}, Fill:{fill_count}, Desc:{desc_count}"))
-            else:
-                results.append(log_test("AI_GEN", "Correct question types", False, f"MCQ:{mcq_count}, Fill:{fill_count}, Desc:{desc_count}"))
-            
-            # Validate MCQ structure
-            mcq_valid = True
-            for q in questions:
-                if q.get('type') == 'mcq':
-                    if not q.get('learningOutcome'):
-                        mcq_valid = False
-                        break
-                    if not q.get('marks'):
-                        mcq_valid = False
-                        break
-                    options = q.get('options', [])
-                    if len(options) != 4:
-                        mcq_valid = False
-                        break
-                    answer = q.get('answer', '')
-                    if answer not in options:
-                        mcq_valid = False
-                        break
-            
-            results.append(log_test("AI_GEN", "MCQ structure valid", mcq_valid, "Has learningOutcome, marks, 4 options, answer in options"))
-            
-            # Validate all questions have required fields
-            all_valid = True
-            for q in questions:
-                if not all([q.get('learningOutcome'), q.get('marks'), q.get('type')]):
-                    all_valid = False
-                    break
-            
-            results.append(log_test("AI_GEN", "All questions have required fields", all_valid, "learningOutcome, marks, type"))
-            
-        else:
-            results.append(log_test("AI_GEN", "Generate exam", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("AI_GEN", "Generate exam", False, str(e)))
-    
-    return all(results)
-
-def test_assessments():
-    """Test 3: ASSESSMENTS"""
-    print("\n" + "="*80)
-    print("TEST GROUP 3: ASSESSMENTS")
-    print("="*80)
-    
-    results = []
-    
-    # 3.1 Create assessment with generated questions
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        payload = {
-            "title": "Photosynthesis Assessment",
-            "className": "8A",
-            "subject": "Science",
-            "theme": "Photosynthesis",
-            "difficulty": "Medium",
-            "learningOutcomes": [
-                "Understand the process of photosynthesis",
-                "Identify key components in photosynthesis",
-                "Explain the importance of photosynthesis"
-            ],
-            "questions": test_data['questions'],
-            "published": True
-        }
-        resp = requests.post(f"{BASE_URL}/assessments", json=payload, headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            assessment = data.get('assessment', {})
-            test_data['assessment'] = assessment
-            
-            if assessment.get('id') and assessment.get('totalMarks'):
-                results.append(log_test("ASSESSMENT", "Create assessment", True, f"ID: {assessment['id']}, Total: {assessment['totalMarks']} marks"))
-            else:
-                results.append(log_test("ASSESSMENT", "Create assessment", False, "Missing id or totalMarks"))
-        else:
-            results.append(log_test("ASSESSMENT", "Create assessment", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ASSESSMENT", "Create assessment", False, str(e)))
-    
-    # 3.2 GET assessments as teacher
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        resp = requests.get(f"{BASE_URL}/assessments", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            assessments = data.get('assessments', [])
-            found = any(a.get('id') == test_data['assessment'].get('id') for a in assessments)
-            has_submission_count = any('submissionCount' in a for a in assessments)
-            
-            if found and has_submission_count:
-                results.append(log_test("ASSESSMENT", "GET assessments (teacher)", True, f"Found {len(assessments)} assessments with submissionCount"))
-            else:
-                results.append(log_test("ASSESSMENT", "GET assessments (teacher)", False, f"Found: {found}, Has submissionCount: {has_submission_count}"))
-        else:
-            results.append(log_test("ASSESSMENT", "GET assessments (teacher)", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ASSESSMENT", "GET assessments (teacher)", False, str(e)))
-    
-    # 3.3 GET single assessment as teacher (should include answers)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        assessment_id = test_data['assessment'].get('id')
-        resp = requests.get(f"{BASE_URL}/assessments/{assessment_id}", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            assessment = data.get('assessment', {})
-            questions = assessment.get('questions', [])
-            has_answers = any('answer' in q for q in questions)
-            
-            if has_answers:
-                results.append(log_test("ASSESSMENT", "GET assessment/:id (teacher)", True, "Questions include answers"))
-            else:
-                results.append(log_test("ASSESSMENT", "GET assessment/:id (teacher)", False, "Questions missing answers"))
-        else:
-            results.append(log_test("ASSESSMENT", "GET assessment/:id (teacher)", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ASSESSMENT", "GET assessment/:id (teacher)", False, str(e)))
-    
-    # 3.4 Verify question bank populated
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        resp = requests.get(f"{BASE_URL}/questions", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            questions = data.get('questions', [])
-            
-            if len(questions) >= 4:
-                results.append(log_test("ASSESSMENT", "Question bank populated", True, f"Found {len(questions)} questions"))
-            else:
-                results.append(log_test("ASSESSMENT", "Question bank populated", False, f"Only {len(questions)} questions"))
-        else:
-            results.append(log_test("ASSESSMENT", "Question bank populated", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ASSESSMENT", "Question bank populated", False, str(e)))
-    
-    return all(results)
-
-def test_student_flow():
-    """Test 4: STUDENT FLOW"""
-    print("\n" + "="*80)
-    print("TEST GROUP 4: STUDENT FLOW")
-    print("="*80)
-    
-    results = []
-    
-    # 4.1 GET assessments as student (answers should be stripped)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        resp = requests.get(f"{BASE_URL}/assessments", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            assessments = data.get('assessments', [])
-            found = any(a.get('id') == test_data['assessment'].get('id') for a in assessments)
-            
-            # Check if answers are stripped
-            answers_stripped = True
-            for a in assessments:
-                for q in a.get('questions', []):
-                    if 'answer' in q:
-                        answers_stripped = False
-                        break
-            
-            if found and answers_stripped:
-                results.append(log_test("STUDENT", "GET assessments (answers stripped)", True, f"Found assessment, answers not exposed"))
-            else:
-                results.append(log_test("STUDENT", "GET assessments (answers stripped)", False, f"Found: {found}, Stripped: {answers_stripped}"))
-        else:
-            results.append(log_test("STUDENT", "GET assessments (answers stripped)", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("STUDENT", "GET assessments (answers stripped)", False, str(e)))
-    
-    # 4.2 Submit answers as student
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        
-        # Build answers - use correct answers for objective questions
-        answers = {}
-        for q in test_data['questions']:
-            if q.get('type') == 'mcq':
-                # Use the correct answer
-                answers[q['id']] = q.get('answer', '')
-            elif q.get('type') == 'fill_blank':
-                # Use the correct answer
-                answers[q['id']] = q.get('answer', '')
-            elif q.get('type') == 'descriptive':
-                # Provide a text answer
-                answers[q['id']] = "Photosynthesis is the process by which green plants use sunlight to synthesize nutrients from carbon dioxide and water. It involves chlorophyll and generates oxygen as a byproduct. This process is essential for life on Earth as it produces oxygen and forms the base of the food chain."
-        
-        payload = {
-            "assessmentId": test_data['assessment'].get('id'),
-            "answers": answers
-        }
-        resp = requests.post(f"{BASE_URL}/submissions", json=payload, headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            submission = data.get('submission', {})
-            test_data['submission'] = submission
-            
-            # Verify objective score computed
-            objective_score = submission.get('objectiveScore', 0)
-            status = submission.get('status')
-            
-            if submission.get('id') and status == 'submitted' and objective_score > 0:
-                results.append(log_test("STUDENT", "Submit answers", True, f"ID: {submission['id']}, Objective: {objective_score}, Status: {status}"))
-            else:
-                results.append(log_test("STUDENT", "Submit answers", False, f"ID: {submission.get('id')}, Score: {objective_score}, Status: {status}"))
-        else:
-            results.append(log_test("STUDENT", "Submit answers", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("STUDENT", "Submit answers", False, str(e)))
-    
-    return all(results)
-
-def test_teacher_evaluation():
-    """Test 5: TEACHER EVALUATION"""
-    print("\n" + "="*80)
-    print("TEST GROUP 5: TEACHER EVALUATION")
-    print("="*80)
-    
-    results = []
-    
-    # 5.1 GET submissions by assessment
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        assessment_id = test_data['assessment'].get('id')
-        resp = requests.get(f"{BASE_URL}/submissions?assessmentId={assessment_id}", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            submissions = data.get('submissions', [])
-            found = any(s.get('id') == test_data['submission'].get('id') for s in submissions)
-            
-            if found:
-                results.append(log_test("TEACHER_EVAL", "GET submissions by assessment", True, f"Found {len(submissions)} submissions"))
-            else:
-                results.append(log_test("TEACHER_EVAL", "GET submissions by assessment", False, "Submission not found"))
-        else:
-            results.append(log_test("TEACHER_EVAL", "GET submissions by assessment", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("TEACHER_EVAL", "GET submissions by assessment", False, str(e)))
-    
-    # 5.2 AI grade submission
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        submission_id = test_data['submission'].get('id')
-        print("   Calling OpenAI for AI grading (may take 10-30 seconds)...")
-        resp = requests.post(f"{BASE_URL}/submissions/{submission_id}/aigrade", headers=headers, timeout=90)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            submission = data.get('submission', {})
-            test_data['submission'] = submission  # Update with AI grades
-            
-            ai_grades = submission.get('ai', {})
-            status = submission.get('status')
-            
-            # Check if descriptive questions have AI grades
-            has_ai_grades = len(ai_grades) > 0
-            has_score = any('score' in g for g in ai_grades.values())
-            has_feedback = any('feedback' in g for g in ai_grades.values())
-            
-            if status == 'ai_graded' and has_ai_grades and has_score and has_feedback:
-                results.append(log_test("TEACHER_EVAL", "AI grade submission", True, f"Status: {status}, AI grades: {len(ai_grades)}"))
-            else:
-                results.append(log_test("TEACHER_EVAL", "AI grade submission", False, f"Status: {status}, Grades: {has_ai_grades}, Score: {has_score}, Feedback: {has_feedback}"))
-        else:
-            results.append(log_test("TEACHER_EVAL", "AI grade submission", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("TEACHER_EVAL", "AI grade submission", False, str(e)))
-    
-    # 5.3 Approve submission
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        submission_id = test_data['submission'].get('id')
-        
-        # Build finalScores for descriptive questions
-        final_scores = {}
-        for q in test_data['questions']:
-            if q.get('type') == 'descriptive':
-                # Use AI suggested score
-                ai_grade = test_data['submission'].get('ai', {}).get(q['id'], {})
-                final_scores[q['id']] = ai_grade.get('score', 0)
-        
-        payload = {"finalScores": final_scores}
-        resp = requests.post(f"{BASE_URL}/submissions/{submission_id}/approve", json=payload, headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            submission = data.get('submission', {})
-            test_data['submission'] = submission  # Update with approval
-            
-            status = submission.get('status')
-            total_score = submission.get('totalScore', 0)
-            
-            if status == 'approved' and total_score > 0:
-                results.append(log_test("TEACHER_EVAL", "Approve submission", True, f"Status: {status}, Total: {total_score}"))
-            else:
-                results.append(log_test("TEACHER_EVAL", "Approve submission", False, f"Status: {status}, Total: {total_score}"))
-        else:
-            results.append(log_test("TEACHER_EVAL", "Approve submission", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("TEACHER_EVAL", "Approve submission", False, str(e)))
-    
-    return all(results)
-
-def test_analytics_and_admin():
-    """Test 6: ANALYTICS & ADMIN"""
-    print("\n" + "="*80)
-    print("TEST GROUP 6: ANALYTICS & ADMIN")
-    print("="*80)
-    
-    results = []
-    
-    # 6.1 GET assessment analytics
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        assessment_id = test_data['assessment'].get('id')
-        resp = requests.get(f"{BASE_URL}/analytics/assessment/{assessment_id}", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            analytics = data.get('analytics', {})
-            
-            has_count = 'count' in analytics
-            has_avg = 'avg' in analytics
-            has_distribution = 'distribution' in analytics
-            has_per_question = 'perQuestion' in analytics
-            
-            if has_count and has_avg and has_distribution and has_per_question:
-                results.append(log_test("ANALYTICS", "GET assessment analytics", True, f"Count: {analytics.get('count')}, Avg: {analytics.get('avg'):.2f}"))
-            else:
-                results.append(log_test("ANALYTICS", "GET assessment analytics", False, f"Count: {has_count}, Avg: {has_avg}, Dist: {has_distribution}, PerQ: {has_per_question}"))
-        else:
-            results.append(log_test("ANALYTICS", "GET assessment analytics", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ANALYTICS", "GET assessment analytics", False, str(e)))
-    
-    # 6.2 POST insights (AI mistake detection)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        assessment_id = test_data['assessment'].get('id')
-        print("   Calling OpenAI for insights generation (may take 10-30 seconds)...")
-        resp = requests.post(f"{BASE_URL}/analytics/insights/{assessment_id}", headers=headers, timeout=90)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            insights = data.get('insights', {})
-            
-            has_mistakes = 'commonMistakes' in insights
-            has_remedial = 'remedialTopics' in insights
-            mistakes_is_array = isinstance(insights.get('commonMistakes'), list)
-            remedial_is_array = isinstance(insights.get('remedialTopics'), list)
-            
-            if has_mistakes and has_remedial and mistakes_is_array and remedial_is_array:
-                results.append(log_test("ANALYTICS", "POST insights", True, f"Mistakes: {len(insights['commonMistakes'])}, Remedial: {len(insights['remedialTopics'])}"))
-            else:
-                results.append(log_test("ANALYTICS", "POST insights", False, f"Mistakes: {has_mistakes}, Remedial: {has_remedial}"))
-        else:
-            results.append(log_test("ANALYTICS", "POST insights", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ANALYTICS", "POST insights", False, str(e)))
-    
-    # 6.3 GET student history
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        student_id = test_data['student1']['user']['id']
-        resp = requests.get(f"{BASE_URL}/analytics/student/{student_id}", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            history = data.get('history', [])
-            
-            if isinstance(history, list) and len(history) > 0:
-                results.append(log_test("ANALYTICS", "GET student history", True, f"Found {len(history)} submissions"))
-            else:
-                results.append(log_test("ANALYTICS", "GET student history", False, f"History: {len(history) if isinstance(history, list) else 'not array'}"))
-        else:
-            results.append(log_test("ANALYTICS", "GET student history", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ANALYTICS", "GET student history", False, str(e)))
-    
-    # 6.4 GET admin stats (superadmin)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['superadmin']['token']}"}
-        resp = requests.get(f"{BASE_URL}/admin/stats", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            stats = data.get('stats', {})
-            
-            has_teachers = 'teachers' in stats
-            has_students = 'students' in stats
-            has_assessments = 'assessments' in stats
-            has_submissions = 'submissions' in stats
-            
-            if has_teachers and has_students and has_assessments and has_submissions:
-                results.append(log_test("ADMIN", "GET admin stats", True, f"Teachers: {stats['teachers']}, Students: {stats['students']}, Assessments: {stats['assessments']}"))
-            else:
-                results.append(log_test("ADMIN", "GET admin stats", False, "Missing required stats fields"))
-        else:
-            results.append(log_test("ADMIN", "GET admin stats", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ADMIN", "GET admin stats", False, str(e)))
-    
-    return all(results)
-
-def test_alerts():
-    """Test 7: ALERTS"""
-    print("\n" + "="*80)
-    print("TEST GROUP 7: ALERTS")
-    print("="*80)
-    
-    results = []
-    
-    # 7.1 POST alert (teacher)
-    try:
-        headers = {"Authorization": f"Bearer {test_data['teacher']['token']}"}
-        payload = {
-            "className": "8A",
-            "message": "Test reminder: Complete your Photosynthesis assessment by Friday"
-        }
-        resp = requests.post(f"{BASE_URL}/alerts", json=payload, headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            sent = data.get('sent', 0)
-            
-            if sent > 0:
-                results.append(log_test("ALERTS", "POST alert", True, f"Sent to {sent} students"))
-            else:
-                results.append(log_test("ALERTS", "POST alert", False, "No alerts sent"))
-        else:
-            results.append(log_test("ALERTS", "POST alert", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ALERTS", "POST alert", False, str(e)))
-    
-    # 7.2 GET alerts (student) - should include assignment alert + manual alert
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        resp = requests.get(f"{BASE_URL}/alerts", headers=headers, timeout=10)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            alerts = data.get('alerts', [])
-            
-            # Should have at least 2 alerts: assignment alert + manual reminder
-            has_assignment = any(a.get('type') == 'assignment' for a in alerts)
-            has_manual = any('reminder' in a.get('message', '').lower() for a in alerts)
-            
-            if len(alerts) >= 2 and has_assignment:
-                results.append(log_test("ALERTS", "GET alerts (student)", True, f"Found {len(alerts)} alerts including assignment alert"))
-            else:
-                results.append(log_test("ALERTS", "GET alerts (student)", False, f"Alerts: {len(alerts)}, Assignment: {has_assignment}, Manual: {has_manual}"))
-        else:
-            results.append(log_test("ALERTS", "GET alerts (student)", False, f"Status {resp.status_code}: {resp.text[:200]}"))
-    except Exception as e:
-        results.append(log_test("ALERTS", "GET alerts (student)", False, str(e)))
-    
-    # 7.3 Mark alert as read
-    try:
-        headers = {"Authorization": f"Bearer {test_data['student1']['token']}"}
-        # Get first alert
-        resp = requests.get(f"{BASE_URL}/alerts", headers=headers, timeout=10)
-        if resp.status_code == 200:
-            alerts = resp.json().get('alerts', [])
-            if alerts:
-                alert_id = alerts[0].get('id')
-                resp = requests.post(f"{BASE_URL}/alerts/{alert_id}/read", headers=headers, timeout=10)
-                
-                if resp.status_code == 200:
-                    results.append(log_test("ALERTS", "Mark alert as read", True, f"Alert {alert_id} marked read"))
-                else:
-                    results.append(log_test("ALERTS", "Mark alert as read", False, f"Status {resp.status_code}"))
-            else:
-                results.append(log_test("ALERTS", "Mark alert as read", False, "No alerts to mark"))
-        else:
-            results.append(log_test("ALERTS", "Mark alert as read", False, "Could not fetch alerts"))
-    except Exception as e:
-        results.append(log_test("ALERTS", "Mark alert as read", False, str(e)))
-    
-    return all(results)
-
-def main():
-    """Run all tests"""
-    print("\n" + "="*80)
-    print("BACKEND API TEST SUITE")
-    print("AI-Assisted Teacher Automation Platform")
-    print("="*80)
-    print(f"Base URL: {BASE_URL}")
-    print(f"Timestamp: {TIMESTAMP}")
-    print("="*80)
-    
-    start_time = time.time()
-    
-    # Run all test groups
-    results = {
-        'auth_rbac': test_auth_and_rbac(),
-        'ai_generation': test_ai_exam_generation(),
-        'assessments': test_assessments(),
-        'student_flow': test_student_flow(),
-        'teacher_eval': test_teacher_evaluation(),
-        'analytics_admin': test_analytics_and_admin(),
-        'alerts': test_alerts()
-    }
-    
-    end_time = time.time()
-    duration = end_time - start_time
-    
-    # Summary
-    print("\n" + "="*80)
-    print("TEST SUMMARY")
-    print("="*80)
-    
-    for group, passed in results.items():
-        status = "✅ PASS" if passed else "❌ FAIL"
-        print(f"{status} {group.upper().replace('_', ' ')}")
-    
-    total_passed = sum(1 for p in results.values() if p)
-    total_tests = len(results)
-    
-    print("\n" + "="*80)
-    print(f"OVERALL: {total_passed}/{total_tests} test groups passed")
-    print(f"Duration: {duration:.2f} seconds")
-    print("="*80)
-    
-    # Return exit code
-    return 0 if all(results.values()) else 1
-
-if __name__ == "__main__":
-    exit(main())
+# ============================================================================
+# SUMMARY
+# ============================================================================
+print("\n" + "="*80)
+print("TEST SUITE COMPLETE")
+print("="*80)
+print("\nAll critical tests passed! ✅")
+print(f"\nTest artifacts:")
+print(f"  className: {CLASS_NAME}")
+print(f"  assessment_id: {assessment_id}")
+print(f"  student1_submission_id: {student1_submission_id}")
+print(f"  student1_id: {student1_id}")

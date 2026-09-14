@@ -203,9 +203,23 @@ function Results({ user }) {
           </div></CardHeader>
           <CardContent><Progress value={pct} className="mb-3" />
             {Object.keys(s.ai || {}).length > 0 && (
-              <div className="space-y-2 rounded-lg bg-muted/40 p-3">
-                <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Sparkles className="h-3.5 w-3.5" />AI Feedback</p>
-                {Object.values(s.ai).map((g, i) => <p key={i} className="text-sm">{g.feedback}</p>)}
+              <div className="space-y-3 rounded-lg bg-muted/40 p-3">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Sparkles className="h-3.5 w-3.5" />AI Feedback & Personalized Improvement</p>
+                {Object.values(s.ai).map((g, i) => (
+                  <div key={i} className="space-y-1.5 rounded-md border border-border/60 bg-card p-2.5">
+                    <p className="text-sm">{g.feedback}</p>
+                    {g.misconception && g.misconception !== 'None detected' && (
+                      <p className="text-xs text-red-700"><span className="font-medium">What went wrong:</span> {g.misconception}</p>
+                    )}
+                    {g.remediation && g.remediation.concept && (
+                      <div className="rounded-md bg-primary/5 p-2 text-xs">
+                        <p className="font-medium text-primary">💡 How to improve: {g.remediation.concept}</p>
+                        {g.remediation.explanation && <p className="mt-0.5 text-muted-foreground">{g.remediation.explanation}</p>}
+                        {g.remediation.practice && <p className="mt-0.5"><span className="font-medium">Try:</span> {g.remediation.practice}</p>}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
             <div className="mt-3 flex justify-end">

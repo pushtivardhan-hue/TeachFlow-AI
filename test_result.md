@@ -249,3 +249,68 @@ agent_communication:
     -message: "Please regression-test that all previously passing endpoints still work, and test the NEW endpoint POST /api/admin/seed. As a superadmin token, POST /api/admin/seed with {\"className\":\"9\",\"subject\":\"Physics\",\"theme\":\"Newton's Laws\",\"difficulty\":\"Medium\"} -> expect 200 and seeded==20 (allow up to 60s, real OpenAI call). Then GET /api/questions?subject=Physics -> should include the seeded items. RBAC: teacher/student calling /api/admin/seed must get 403. Do not re-test slow AI generation more than necessary."
     -agent: "testing"
     -message: "✅ TESTING COMPLETE - NEW SEED ENDPOINT WORKING. Tested POST /api/admin/seed with superadmin token: successfully generated and seeded 20 Physics questions on Newton's Laws in 28.73s. GET /api/questions?subject=Physics correctly returns all 20 seeded questions. RBAC properly enforced (teacher->403, student->403). Quick regression passed: auth endpoints, admin/stats (264 questions >= 240), assessments all working. All backend APIs functional. No critical issues found."
+
+## ---- Update: TeachFlow AI upgrade (rubric eval + misconception + remediation, teacher overview, regenerate, dup-submission) ----
+backend_update_2:
+  - task: "Upgraded rubric grading (misconception + confidence + remediation)"
+    implemented: true
+    working: true
+    file: "lib/ai.js, app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "gradeAnswer now returns misconception (string), confidence (0-100 number), remediation {concept,explanation,practice,difficulty,nextStep}. Surfaced via POST /api/submissions/:id/aigrade (ai[qid] enriched with learningOutcome+question)."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASS. POST /api/submissions/:id/aigrade successfully returns upgraded fields. Verified ai[descriptiveQid] contains: misconception='Does not understand the specific role of chlorophyll in photosynthesis.' (string), confidence=85 (number 0-100), remediation object with all required keys (concept, explanation, practice, difficulty, nextStep). AI grading completed in ~10s. All field types correct."
+  - task: "Duplicate submission prevention (deterministic)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /api/submissions now returns 409 if the student already submitted that assessment."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASS. Duplicate submission prevention working correctly. First submission (student1) returned 200 with submission_id and objectiveScore. Second submission attempt by same student for same assessment correctly rejected with HTTP 409 and error message 'You have already submitted this assessment.'"
+  - task: "Teacher overview command-center endpoint"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "GET /api/teacher/overview -> {totalStudents, activeAssessments, completedSubmissions, avgClassScore, needsAttention[], classPerformance[], recentSubmissions[], recentAssessments[]}. Teacher/superadmin only."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASS. GET /api/teacher/overview returns all required keys: totalStudents=2, activeAssessments=1, completedSubmissions=1, avgClassScore=67, needsAttention[] (0 students), classPerformance[] (1 assessment), recentSubmissions[] (1 item), recentAssessments[] (1 item). All array fields verified as arrays. RBAC enforced: student token correctly denied with 403."
+  - task: "Single-question regenerate + extended student analytics"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "POST /api/ai/regenerate {subject,theme,type,...} -> {question}. GET /api/analytics/student/:id now also returns topics[], strengths[], weaknesses[], remediation[]."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ PASS. POST /api/ai/regenerate successfully generates single MCQ question with correct structure: type='mcq', 4 options, answer='Oxygen' (present in options). Completed in ~8s. GET /api/analytics/student/:id returns all extended fields: history[] (1 submission), topics[] (1 topic), strengths[] (0 items), weaknesses[] (1 item), remediation[] (1 item). All fields verified as arrays. RBAC enforced: student token correctly denied with 403."
+
+agent_communication:
+    -agent: "main"
+    -message: "Focused test of the TeachFlow AI upgrade. Register superadmin/teacher/2 students (unique emails, same className e.g. 'GX'). (1) Teacher POST /api/ai/generate with counts {mcq:1,fill_blank:0,descriptive:1}. Publish via /api/assessments. (2) Student1 POST /api/submissions (answer both Qs). Then Student1 POST /api/submissions AGAIN for the same assessment -> EXPECT 409 (duplicate prevention). (3) Teacher POST /api/submissions/:id/aigrade -> verify ai[descriptiveQid] now includes fields: misconception (string), confidence (number), remediation (object with concept/explanation/practice/difficulty/nextStep). Allow up to 60s. (4) Teacher POST /api/submissions/:id/approve with a modified finalScore -> status approved, totalScore reflects modified score. (5) GET /api/teacher/overview (teacher token) -> verify keys totalStudents/activeAssessments/completedSubmissions/avgClassScore/needsAttention/classPerformance/recentSubmissions/recentAssessments. (6) POST /api/ai/regenerate {className,subject,theme,difficulty,type:'mcq'} (teacher) -> returns a single question object with 4 options+answer (allow 30s). (7) GET /api/analytics/student/:student1Id -> verify it returns history[] AND topics[]/strengths[]/weaknesses[]/remediation[]. RBAC: student calling /api/teacher/overview or /api/ai/regenerate -> 403. Also quick regression: login/register/me still work. Report pass/fail with snippets."
+    -agent: "testing"
+    -message: "✅ BACKEND UPGRADE TESTING COMPLETE - ALL TESTS PASSED (9 test groups, 25+ individual assertions). Comprehensive testing of TeachFlow AI upgrade completed successfully. Test setup: registered superadmin, teacher (className=GX1789424510, subject=Science), and 2 students (rollNo 1,2). TEST RESULTS: (1) AI Generation: Teacher generated 1 MCQ + 1 descriptive question on Photosynthesis theme, published as assessment ✓. (2) Duplicate Prevention: Student1 submitted successfully (objectiveScore=1 auto-graded), second submission attempt correctly rejected with HTTP 409 'You have already submitted this assessment.' ✓. (3) Upgraded Grading: Teacher AI-graded submission, verified ai[descriptiveQid] contains misconception (string), confidence=85 (number 0-100), remediation object with all 5 required keys (concept/explanation/practice/difficulty/nextStep) ✓. (4) Approve with Modification: Teacher approved with finalScores={descriptiveId:3}, status='approved', totalScore=4 (objective 1 + descriptive 3) ✓. (5) Teacher Overview: GET /api/teacher/overview returned all 8 required keys (totalStudents=2, activeAssessments=1, completedSubmissions=1, avgClassScore=67, needsAttention/classPerformance/recentSubmissions/recentAssessments arrays) ✓. (6) Regenerate: POST /api/ai/regenerate generated single MCQ with 4 options, answer in options ✓. (7) Extended Analytics: GET /api/analytics/student/:id returned history/topics/strengths/weaknesses/remediation arrays ✓. (8) RBAC: Student token correctly denied (403) on GET /api/teacher/overview and POST /api/ai/regenerate ✓. (9) Regression: POST /api/auth/register, POST /api/auth/login, GET /api/auth/me all working ✓. AI operations completed within expected timeframes (generate ~10s, grade ~10s, regenerate ~8s). No critical issues found. All backend upgrade features working correctly."
